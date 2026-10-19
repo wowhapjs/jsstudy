@@ -32,7 +32,7 @@ SET search_path = pg_catalog, private
 AS $$
   SELECT p.state, p.updated_at
   FROM private.progress p
-  WHERE p.token_hash = digest(p_token, 'sha256');
+  WHERE p.token_hash = public.digest(p_token, 'sha256');
 $$;
 
 CREATE OR REPLACE FUNCTION api.sync_put(p_token text, p_state jsonb)
@@ -50,7 +50,7 @@ BEGIN
     RAISE EXCEPTION 'state too large';
   END IF;
   INSERT INTO private.progress(token_hash, state)
-  VALUES (digest(p_token, 'sha256'), p_state)
+  VALUES (public.digest(p_token, 'sha256'), p_state)
   ON CONFLICT (token_hash) DO UPDATE
     SET state = EXCLUDED.state, updated_at = now()
   RETURNING private.progress.updated_at INTO v_updated;
