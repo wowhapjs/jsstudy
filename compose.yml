@@ -1,0 +1,25 @@
+services:
+  web:
+    image: nginx:alpine
+    container_name: jsstudy
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:31005:80"
+    volumes:
+      - ./index.html.gz.b64:/payload/index.html.gz.b64:ro
+    command:
+      - /bin/sh
+      - -c
+      - >-
+        base64 -d /payload/index.html.gz.b64 | gzip -d > /usr/share/nginx/html/index.html
+        && exec nginx -g 'daemon off;'
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - SETGID
+      - SETUID
+      - NET_BIND_SERVICE
