@@ -3,8 +3,17 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE SCHEMA IF NOT EXISTS private;
 CREATE SCHEMA IF NOT EXISTS api;
 
+-- Legacy per-token progress rows are kept for backward compatibility and rollback.
 CREATE TABLE IF NOT EXISTS private.progress (
   token_hash bytea PRIMARY KEY,
+  state jsonb NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- The current site uses one shared progress document for every device.
+CREATE TABLE IF NOT EXISTS private.shared_progress (
+  singleton boolean PRIMARY KEY DEFAULT true CHECK (singleton),
   state jsonb NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
@@ -24,7 +33,9 @@ GRANT web_anon TO authenticator;
 GRANT USAGE ON SCHEMA api TO web_anon;
 REVOKE ALL ON SCHEMA private FROM PUBLIC, web_anon;
 REVOKE ALL ON private.progress FROM PUBLIC, web_anon;
+REVOKE ALL ON private.shared_progress FROM PUBLIC, web_anon;
 
+-- Legacy token-based API retained so the previous deployment remains rollback-safe.
 CREATE OR REPLACE FUNCTION api.sync_get(p_token text)
 RETURNS TABLE(state jsonb, updated_at timestamptz)
 LANGUAGE sql
@@ -59,7 +70,47 @@ BEGIN
 END;
 $$;
 
+CREATE OR REPLACE FUNCTION api.shared_get()
+RETURNS TABLE(state jsonb, updated_at timestamptz)
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = pg_catalog, private
+AS $$
+  SELECT p.state, p.updated_at
+  FROM private.shared_progress p
+  WHERE p.singleton = true;
+$$;
+
+CREATE OR REPLACE FUNCTION api.shared_put(p_state jsonb)
+RETURNS TABLE(updated_at timestamptz)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, private
+AS $$
+DECLARE v_updated timestamptz;
+BEGIN
+  IF p_state IS NULL THEN
+    RAISE EXCEPTION 'state is required';
+  END IF;
+  IF pg_column_size(p_state) > 3145728 THEN
+    RAISE EXCEPTION 'state too large';
+  END IF;
+
+  INSERT INTO private.shared_progress(singleton, state)
+  VALUES (true, p_state)
+  ON CONFLICT (singleton) DO UPDATE
+    SET state = EXCLUDED.state, updated_at = now()
+  RETURNING private.shared_progress.updated_at INTO v_updated;
+
+  RETURN QUERY SELECT v_updated;
+END;
+$$;
+
 REVOKE ALL ON FUNCTION api.sync_get(text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION api.sync_put(text,jsonb) FROM PUBLIC;
+REVOKE ALL ON FUNCTION api.shared_get() FROM PUBLIC;
+REVOKE ALL ON FUNCTION api.shared_put(jsonb) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION api.sync_get(text) TO web_anon;
 GRANT EXECUTE ON FUNCTION api.sync_put(text,jsonb) TO web_anon;
+GRANT EXECUTE ON FUNCTION api.shared_get() TO web_anon;
+GRANT EXECUTE ON FUNCTION api.shared_put(jsonb) TO web_anon;
