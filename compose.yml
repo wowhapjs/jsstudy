@@ -6,12 +6,12 @@ services:
     ports:
       - "127.0.0.1:31005:80"
     volumes:
-      - ./index.html.gz.b64:/payload/index.html.gz.b64:ro
+      - ./payload-xz:/payload:ro
     command:
       - /bin/sh
       - -c
       - >-
-        base64 -d /payload/index.html.gz.b64 | gzip -d > /usr/share/nginx/html/index.html
+        cat /payload/part-*.b64 | base64 -d | unxz > /usr/share/nginx/html/index.html
         && exec nginx -g 'daemon off;'
     security_opt:
       - no-new-privileges:true
