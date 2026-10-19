@@ -15,8 +15,9 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 DO $$ BEGIN
-  CREATE ROLE authenticator NOLOGIN;
-EXCEPTION WHEN duplicate_object THEN NULL;
+  CREATE ROLE authenticator LOGIN;
+EXCEPTION WHEN duplicate_object THEN
+  ALTER ROLE authenticator LOGIN;
 END $$;
 
 GRANT web_anon TO authenticator;
